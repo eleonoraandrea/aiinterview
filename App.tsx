@@ -5,7 +5,7 @@ import { analyzeVideoInterview } from './services/geminiService';
 import { uploadInterviewVideo, uploadCV, saveInterviewData } from './services/supabaseService';
 import { captureVideoFrame, generatePDFCV } from './services/mediaService';
 import { AppStep, InterviewSession, AnalysisResult } from './types';
-import { Mic, Play, RefreshCw, Save, CheckCircle, Loader2, BrainCircuit, ArrowRight, Database, FileText, Download } from 'lucide-react';
+import { Mic, Play, RefreshCw, Save, CheckCircle, Loader2, BrainCircuit, ArrowRight, Database, FileText, Download, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>(AppStep.LANDING);
@@ -45,6 +45,7 @@ export default function App() {
     if (!session.videoBlob || !session.videoUrl) return;
 
     setStep(AppStep.SAVING);
+    setError('');
     
     try {
       // 1. Generate Assets
@@ -85,7 +86,14 @@ export default function App() {
       setStep(AppStep.SUCCESS);
     } catch (err: any) {
       console.error("Save failed:", err);
-      setError(err.message || "Failed to save interview. Please check your database configuration.");
+      let errorMessage = err.message || "Failed to save interview.";
+      
+      // Enhance error message for common setup issues
+      if (errorMessage.includes("bucket") || errorMessage.includes("relation")) {
+         errorMessage = "Database setup required. Please run the provided SQL script in your Supabase dashboard.";
+      }
+      
+      setError(errorMessage);
       setStep(AppStep.EDITING); // Return to edit mode on failure
     } finally {
       setLoadingStatus('');
@@ -211,7 +219,8 @@ export default function App() {
         {step === AppStep.EDITING && session.analysis && (
           <>
             {error && (
-                <div className="max-w-4xl mx-auto mb-6 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-center font-medium shadow-sm">
+                <div className="max-w-4xl mx-auto mb-6 p-4 bg-red-50 text-red-800 rounded-xl border border-red-200 text-center font-medium shadow-sm flex items-center justify-center gap-3">
+                  <AlertTriangle className="w-5 h-5" />
                   {error}
                 </div>
             )}

@@ -14,8 +14,9 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete }) => {
   const [timeLeft, setTimeLeft] = useState(30);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string>('');
+  const [supportedMimeType, setSupportedMimeType] = useState<string>('');
 
-  // Initialize Camera
+  // Initialize Camera and detect supported mime types
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -31,6 +32,18 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete }) => {
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
         }
+
+        // Detect supported mime type
+        const types = [
+          'video/webm;codecs=vp9',
+          'video/webm',
+          'video/mp4',
+          'video/mp4;codecs=h264' // Common on Safari
+        ];
+        
+        const supported = types.find(type => MediaRecorder.isTypeSupported(type));
+        setSupportedMimeType(supported || '');
+
       } catch (err) {
         console.error("Error accessing media devices:", err);
         setError("Unable to access camera or microphone. Please check permissions.");
@@ -75,23 +88,34 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete }) => {
     if (!stream) return;
     
     chunksRef.current = [];
-    const mediaRecorder = new MediaRecorder(stream);
     
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        chunksRef.current.push(e.data);
-      }
-    };
+    // Use supported mime type or let browser choose default
+    const options = supportedMimeType ? { mimeType: supportedMimeType } : undefined;
+    
+    try {
+      const mediaRecorder = new MediaRecorder(stream, options);
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
 
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-      onRecordingComplete(blob);
-    };
+      mediaRecorder.onstop = () => {
+        // Create blob with the actual mime type used
+        const type = mediaRecorder.mimeType || supportedMimeType || 'video/webm';
+        const blob = new Blob(chunksRef.current, { type });
+        onRecordingComplete(blob);
+      };
 
-    mediaRecorderRef.current = mediaRecorder;
-    mediaRecorder.start();
-    setIsRecording(true);
-    setTimeLeft(30);
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsRecording(true);
+      setTimeLeft(30);
+    } catch (e) {
+      console.error("MediaRecorder error:", e);
+      setError("Failed to start recording. Your browser might not support the video format.");
+    }
   };
 
   if (error) {
@@ -128,7 +152,9 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete }) => {
           {!isRecording ? (
             <button 
               onClick={startRecording}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:scale-105 shadow-lg shadow-red-900/50"
+              disabled={!stream}
+              className={`flex items-center gap-2 px-8 py-4 rounded-full font-bold text-lg transition-all transform shadow-lg 
+                ${!stream ? 'bg-gray-500 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 hover:scale-105 shadow-red-900/50 text-white'}`}
             >
               <Camera className="w-6 h-6" />
               Start Recording

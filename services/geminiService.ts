@@ -85,7 +85,10 @@ export const analyzeVideoInterview = async (videoBlob: Blob): Promise<AnalysisRe
     const text = response.text;
     if (!text) throw new Error("No response from Gemini");
     
-    return JSON.parse(text) as AnalysisResult;
+    // Clean the text in case Gemini wraps it in markdown code blocks
+    const cleanText = text.replace(/```json|```/g, '').trim();
+    
+    return JSON.parse(cleanText) as AnalysisResult;
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     throw error;

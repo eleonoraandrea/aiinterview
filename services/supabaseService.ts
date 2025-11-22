@@ -28,11 +28,11 @@ export const uploadFileToStorage = async (fileBlob: Blob, folder: 'videos' | 'do
   validateConfig();
 
   try {
-    // We use a single bucket 'videos' as defined in the initial SQL, but prefix files with their type.
-    const filename = `${folder}_${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
+    // We use the 'folder' argument as the bucket name ('videos' or 'documents')
+    const filename = `${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
     
     const { data, error } = await supabase.storage
-      .from('videos') 
+      .from(folder) 
       .upload(filename, fileBlob, {
         cacheControl: '3600',
         upsert: false,
@@ -43,19 +43,19 @@ export const uploadFileToStorage = async (fileBlob: Blob, folder: 'videos' | 'do
       console.error('Supabase Storage Error:', error);
       
       // Handle specific auth errors
-      if (error.message.includes("JWS") || error.statusCode === '401') {
+      if (error.message.includes("JWS") || (error as any).statusCode === '401') {
         throw new Error("Authentication Failed: Invalid API Key. Please check your Supabase credentials.");
       }
       
       if (error.message.includes("bucket not found")) {
-        throw new Error("Storage bucket 'videos' does not exist. Please run the SQL setup script.");
+        throw new Error(`Storage bucket '${folder}' does not exist. Please run the SQL setup script to create it.`);
       }
       
       throw new Error(`${folder} Upload Failed: ${error.message}`);
     }
 
     const { data: { publicUrl } } = supabase.storage
-      .from('videos')
+      .from(folder)
       .getPublicUrl(filename);
 
     return publicUrl;

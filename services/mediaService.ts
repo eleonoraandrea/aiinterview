@@ -3,6 +3,7 @@ import { AnalysisResult } from "../types";
 
 /**
  * Captures a video frame at a specific timestamp to use as a profile photo.
+ * Includes a timeout to prevent hanging if video metadata fails to load.
  */
 export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -11,6 +12,21 @@ export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Pr
     video.muted = true;
     video.playsInline = true; // Important for mobile support
     video.src = videoUrl;
+    
+    // Timeout safety valve (3 seconds)
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error("Video frame capture timed out"));
+    }, 3000);
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      video.onloadedmetadata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+    };
 
     // Wait for metadata to load before setting time
     video.onloadedmetadata = () => {
@@ -23,25 +39,33 @@ export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Pr
     };
 
     video.onseeked = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error("Could not get canvas context"));
-        return;
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error("Could not get canvas context");
+        }
+        
+        // Draw video frame
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert to base64 jpeg
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        cleanup();
+        resolve(dataUrl);
+      } catch (e) {
+        cleanup();
+        reject(e);
       }
-      
-      // Draw video frame
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // Convert to base64 jpeg
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      resolve(dataUrl);
     };
 
-    video.onerror = (e) => reject(new Error("Video loading failed"));
+    video.onerror = (e) => {
+      cleanup();
+      reject(new Error("Video loading failed"));
+    };
     
     // Explicitly load
     video.load();
