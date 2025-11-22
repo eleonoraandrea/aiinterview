@@ -20,7 +20,11 @@ export const Recorder: React.FC<RecorderProps> = ({ onRecordingComplete }) => {
     const startCamera = async () => {
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 1280, height: 720, facingMode: "user" }, 
+          video: { 
+            width: { ideal: 1280 }, 
+            height: { ideal: 720 }, 
+            facingMode: "user" 
+          }, 
           audio: true 
         });
         setStream(mediaStream);
