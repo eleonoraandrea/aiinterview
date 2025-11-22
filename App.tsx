@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Recorder } from './components/Recorder';
 import { Editor } from './components/Editor';
 import { analyzeVideoInterview } from './services/geminiService';
-import { uploadInterviewVideo, saveInterviewData } from './services/supabaseService';
+import { uploadInterviewVideo, uploadCV, saveInterviewData } from './services/supabaseService';
+import { captureVideoFrame, generatePDFCV } from './services/mediaService';
 import { AppStep, InterviewSession, AnalysisResult } from './types';
-import { Mic, Play, RefreshCw, Save, CheckCircle, Loader2, BrainCircuit, ArrowRight, Database } from 'lucide-react';
+import { Mic, Play, RefreshCw, Save, CheckCircle, Loader2, BrainCircuit, ArrowRight, Database, FileText, Download } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>(AppStep.LANDING);
@@ -13,6 +14,7 @@ export default function App() {
     videoUrl: null,
     analysis: null
   });
+  const [finalCvUrl, setFinalCvUrl] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
   const [loadingStatus, setLoadingStatus] = useState<string>('');
 
@@ -40,26 +42,45 @@ export default function App() {
   };
 
   const handleSave = async (finalAnalysis: AnalysisResult) => {
-    if (!session.videoBlob) return;
+    if (!session.videoBlob || !session.videoUrl) return;
 
     setStep(AppStep.SAVING);
-    setLoadingStatus('Uploading video to secure storage...');
     
     try {
-      // 1. Upload Video
-      const videoUrl = await uploadInterviewVideo(session.videoBlob);
+      // 1. Generate Assets
+      setLoadingStatus('Generating CV assets...');
       
-      if (!videoUrl) {
-        throw new Error("Failed to get video URL after upload.");
+      // Capture photo from video
+      let photoDataUrl = null;
+      try {
+        photoDataUrl = await captureVideoFrame(session.videoUrl, 1.0);
+      } catch (e) {
+        console.warn("Could not capture frame for CV", e);
+      }
+
+      // Generate PDF
+      const pdfBlob = generatePDFCV(finalAnalysis, photoDataUrl);
+
+      // 2. Upload Files
+      setLoadingStatus('Uploading video and documents...');
+      
+      const [videoUrl, cvUrl] = await Promise.all([
+        uploadInterviewVideo(session.videoBlob),
+        uploadCV(pdfBlob)
+      ]);
+      
+      if (!videoUrl || !cvUrl) {
+        throw new Error("Failed to get URLs after upload.");
       }
 
       setLoadingStatus('Saving candidate profile to database...');
 
-      // 2. Save Data
-      await saveInterviewData(finalAnalysis, videoUrl);
+      // 3. Save Database Record
+      await saveInterviewData(finalAnalysis, videoUrl, cvUrl);
 
       // Update local state
       setSession(prev => ({ ...prev, analysis: finalAnalysis }));
+      setFinalCvUrl(cvUrl);
       
       setStep(AppStep.SUCCESS);
     } catch (err: any) {
@@ -73,6 +94,7 @@ export default function App() {
 
   const resetApp = () => {
     setSession({ videoBlob: null, videoUrl: null, analysis: null });
+    setFinalCvUrl(null);
     setStep(AppStep.LANDING);
     setError('');
   };
@@ -109,7 +131,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-col items-center">
                     <div className="w-10 h-10 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 font-bold mb-2">3</div>
-                    <p className="text-sm text-indigo-800">Save to DB</p>
+                    <p className="text-sm text-indigo-800">Get CV & Save</p>
                   </div>
                 </div>
               </div>
@@ -204,8 +226,12 @@ export default function App() {
         {/* Step: SAVING */}
         {step === AppStep.SAVING && (
           <div className="flex flex-col items-center justify-center py-20">
-            <Database className="w-16 h-16 text-emerald-500 animate-bounce mb-6" />
-            <h2 className="text-2xl font-bold text-slate-800">Processing...</h2>
+            <div className="relative mb-6">
+               <Database className="w-16 h-16 text-emerald-500 animate-bounce" />
+               <FileText className="w-8 h-8 text-indigo-600 absolute -bottom-2 -right-2" />
+            </div>
+            
+            <h2 className="text-2xl font-bold text-slate-800">Creating Your Profile...</h2>
             <p className="text-slate-500 mt-2 font-medium">{loadingStatus}</p>
           </div>
         )}
@@ -216,20 +242,34 @@ export default function App() {
             <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-emerald-600" />
             </div>
-            <h2 className="text-3xl font-black text-slate-900 mb-2">Profile Saved!</h2>
-            <p className="text-slate-500 mb-8">Your interview has been uploaded and database record created successfully.</p>
+            <h2 className="text-3xl font-black text-slate-900 mb-2">Success!</h2>
+            <p className="text-slate-500 mb-8">Your video and AI-generated CV have been saved.</p>
             
             <div className="bg-slate-50 p-6 rounded-xl text-left mb-8 border border-slate-200">
               <h4 className="text-xs font-bold uppercase text-slate-400 mb-2">Summary</h4>
               <p className="text-slate-700 italic">"{session.analysis?.professionalSummary}"</p>
             </div>
+            
+            <div className="space-y-3">
+                {finalCvUrl && (
+                    <a 
+                        href={finalCvUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                    >
+                        <Download size={20} />
+                        Download Generated CV (PDF)
+                    </a>
+                )}
 
-            <button 
-              onClick={resetApp}
-              className="w-full py-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-colors shadow-lg"
-            >
-              Start New Interview
-            </button>
+                <button 
+                onClick={resetApp}
+                className="w-full py-4 rounded-xl bg-white border-2 border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors"
+                >
+                Start New Interview
+                </button>
+            </div>
           </div>
         )}
 

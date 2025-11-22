@@ -1,0 +1,154 @@
+import { jsPDF } from "jspdf";
+import { AnalysisResult } from "../types";
+
+/**
+ * Captures a video frame at a specific timestamp to use as a profile photo.
+ */
+export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.src = videoUrl;
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+
+    video.onloadeddata = () => {
+      video.currentTime = timestamp;
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error("Could not get canvas context"));
+        return;
+      }
+      
+      // Draw video frame
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to base64 jpeg
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      resolve(dataUrl);
+    };
+
+    video.onerror = (e) => reject(e);
+  });
+};
+
+/**
+ * Generates a PDF CV using jsPDF.
+ */
+export const generatePDFCV = (analysis: AnalysisResult, photoDataUrl: string | null): Blob => {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let yPos = 20;
+  const margin = 20;
+  const contentWidth = pageWidth - (margin * 2);
+
+  // --- Header Section ---
+  doc.setFillColor(79, 70, 229); // Indigo 600
+  doc.rect(0, 0, pageWidth, 40, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(24);
+  doc.setFont("helvetica", "bold");
+  doc.text(analysis.candidateName || "Candidate Profile", margin, 20);
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text("AI-Generated Video Interview Profile", margin, 28);
+
+  // --- Photo ---
+  if (photoDataUrl) {
+    const imgWidth = 35;
+    const imgHeight = 35 * (9/16); // 16:9 aspect ratio roughly
+    // Add white border
+    doc.setFillColor(255, 255, 255);
+    doc.circle(pageWidth - margin - 15, 20, 18, 'F');
+    // Add image (circular clipping is hard in basic jsPDF, just doing rectangular for now)
+    try {
+        doc.addImage(photoDataUrl, 'JPEG', pageWidth - margin - 32, 5, imgWidth, imgWidth, undefined, 'FAST');
+    } catch (e) {
+        console.error("Error adding image to PDF", e);
+    }
+  }
+
+  yPos = 50;
+
+  // --- Professional Summary ---
+  doc.setTextColor(51, 65, 85); // Slate 700
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text("Professional Summary", margin, yPos);
+  yPos += 8;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "italic");
+  const summaryLines = doc.splitTextToSize(analysis.professionalSummary, contentWidth);
+  doc.text(summaryLines, margin, yPos);
+  yPos += (summaryLines.length * 5) + 10;
+
+  // --- Skills Grid ---
+  const colWidth = contentWidth / 2;
+  
+  // Hard Skills
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Hard Skills", margin, yPos);
+  
+  // Soft Skills
+  doc.text("Soft Skills", margin + colWidth, yPos);
+  yPos += 6;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  
+  const maxItems = Math.max(analysis.hardSkills.length, analysis.softSkills.length);
+  
+  for(let i=0; i<maxItems; i++) {
+    if(analysis.hardSkills[i]) {
+        doc.text(`• ${analysis.hardSkills[i]}`, margin, yPos + (i*5));
+    }
+    if(analysis.softSkills[i]) {
+        doc.text(`• ${analysis.softSkills[i]}`, margin + colWidth, yPos + (i*5));
+    }
+  }
+  yPos += (maxItems * 5) + 10;
+
+  // --- Tags ---
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Tags", margin, yPos);
+  yPos += 6;
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(79, 70, 229); // Indigo
+  const tagString = analysis.tags.map(t => `#${t}`).join("  ");
+  doc.text(tagString, margin, yPos);
+  yPos += 15;
+
+  // --- Transcript ---
+  doc.setTextColor(51, 65, 85);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Transcript", margin, yPos);
+  yPos += 6;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const transcriptLines = doc.splitTextToSize(analysis.transcript, contentWidth);
+  
+  // Check for new page
+  if (yPos + (transcriptLines.length * 4) > 280) {
+    doc.addPage();
+    yPos = 20;
+  }
+  
+  doc.text(transcriptLines, margin, yPos);
+
+  return doc.output('blob');
+};

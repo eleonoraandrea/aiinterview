@@ -8,20 +8,24 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sbp_e892f8827e901e4eda837a9f98
 // Initialize client
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-export const uploadInterviewVideo = async (videoBlob: Blob): Promise<string | null> => {
+export const uploadFileToStorage = async (fileBlob: Blob, folder: 'videos' | 'documents', extension: string): Promise<string> => {
   try {
-    const filename = `interview_${Date.now()}_${Math.random().toString(36).substring(7)}.webm`;
+    // We use the 'videos' bucket for everything to keep it simple, or ensure 'documents' exists.
+    // For this prompt, we will store everything in the 'videos' bucket but organize by name if possible,
+    // or just dump them there.
+    const filename = `${folder}_${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
     
     const { data, error } = await supabase.storage
-      .from('videos')
-      .upload(filename, videoBlob, {
+      .from('videos') // Reusing the videos bucket for simplicity as setup in SQL
+      .upload(filename, fileBlob, {
         cacheControl: '3600',
-        upsert: false
+        upsert: false,
+        contentType: extension === 'pdf' ? 'application/pdf' : 'video/webm'
       });
 
     if (error) {
       console.error('Supabase Storage Error:', error);
-      throw new Error(`Video Upload Failed: ${error.message}`);
+      throw new Error(`${folder} Upload Failed: ${error.message}`);
     }
 
     // Get public URL
@@ -31,12 +35,20 @@ export const uploadInterviewVideo = async (videoBlob: Blob): Promise<string | nu
 
     return publicUrl;
   } catch (error: any) {
-    console.error('Error uploading video:', error);
+    console.error('Error uploading file:', error);
     throw error;
   }
+}
+
+export const uploadInterviewVideo = async (videoBlob: Blob): Promise<string> => {
+  return uploadFileToStorage(videoBlob, 'videos', 'webm');
 };
 
-export const saveInterviewData = async (analysis: AnalysisResult, videoUrl: string) => {
+export const uploadCV = async (pdfBlob: Blob): Promise<string> => {
+  return uploadFileToStorage(pdfBlob, 'documents', 'pdf');
+};
+
+export const saveInterviewData = async (analysis: AnalysisResult, videoUrl: string, cvUrl: string) => {
   try {
     const { data, error } = await supabase
       .from('interviews')
@@ -48,7 +60,8 @@ export const saveInterviewData = async (analysis: AnalysisResult, videoUrl: stri
           hard_skills: analysis.hardSkills,
           soft_skills: analysis.softSkills,
           tags: analysis.tags,
-          video_url: videoUrl
+          video_url: videoUrl,
+          cv_url: cvUrl
         }
       ])
       .select();
