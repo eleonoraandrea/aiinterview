@@ -1,0 +1,8 @@
+{
+  "name": "AI Video Interview Analyzer",
+  "description": "Record a 30-second video interview, analyze it with Gemini to extract CV data (skills, tags, transcript), edit the results, and save to a database.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
