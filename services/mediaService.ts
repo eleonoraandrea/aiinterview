@@ -7,12 +7,19 @@ import { AnalysisResult } from "../types";
 export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Promise<string> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    video.src = videoUrl;
     video.crossOrigin = "anonymous";
     video.muted = true;
+    video.playsInline = true; // Important for mobile support
+    video.src = videoUrl;
 
-    video.onloadeddata = () => {
-      video.currentTime = timestamp;
+    // Wait for metadata to load before setting time
+    video.onloadedmetadata = () => {
+      // If video is shorter than requested timestamp, take the middle
+      if (video.duration < timestamp) {
+        video.currentTime = video.duration / 2;
+      } else {
+        video.currentTime = timestamp;
+      }
     };
 
     video.onseeked = () => {
@@ -34,7 +41,10 @@ export const captureVideoFrame = (videoUrl: string, timestamp: number = 1.0): Pr
       resolve(dataUrl);
     };
 
-    video.onerror = (e) => reject(e);
+    video.onerror = (e) => reject(new Error("Video loading failed"));
+    
+    // Explicitly load
+    video.load();
   });
 };
 
@@ -64,13 +74,16 @@ export const generatePDFCV = (analysis: AnalysisResult, photoDataUrl: string | n
   // --- Photo ---
   if (photoDataUrl) {
     const imgWidth = 35;
-    const imgHeight = 35 * (9/16); // 16:9 aspect ratio roughly
-    // Add white border
+    // Use 16:9 aspect ratio to match video capture (width * 9/16)
+    const imgHeight = imgWidth * (9/16); 
+    
+    // Draw circle background (decorative)
     doc.setFillColor(255, 255, 255);
-    doc.circle(pageWidth - margin - 15, 20, 18, 'F');
-    // Add image (circular clipping is hard in basic jsPDF, just doing rectangular for now)
+    doc.circle(pageWidth - margin - (imgWidth/2), 20, (imgWidth/2) + 2, 'F');
+    
     try {
-        doc.addImage(photoDataUrl, 'JPEG', pageWidth - margin - 32, 5, imgWidth, imgWidth, undefined, 'FAST');
+        // Correctly use imgHeight for the height parameter to prevent distortion
+        doc.addImage(photoDataUrl, 'JPEG', pageWidth - margin - imgWidth, 20 - (imgHeight/2), imgWidth, imgHeight, undefined, 'FAST');
     } catch (e) {
         console.error("Error adding image to PDF", e);
     }

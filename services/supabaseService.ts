@@ -1,22 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { AnalysisResult } from '../types';
 
-// Configuration with fallbacks to prevent initialization errors
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hnvchonvhwcpskzhzlcc.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sbp_e892f8827e901e4eda837a9f9862b3102f099a59';
+// Configuration with fallbacks.
+// NOTE: In production, use process.env.SUPABASE_KEY (Anon Key), not hardcoded tokens.
+const SUPABASE_URL = (process.env.SUPABASE_URL || 'https://hnvchonvhwcpskzhzlcc.supabase.co').trim();
+const SUPABASE_KEY = (process.env.SUPABASE_KEY || 'sbp_e892f8827e901e4eda837a9f9862b3102f099a59').trim();
 
 // Initialize client
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export const uploadFileToStorage = async (fileBlob: Blob, folder: 'videos' | 'documents', extension: string): Promise<string> => {
   try {
-    // We use the 'videos' bucket for everything to keep it simple, or ensure 'documents' exists.
-    // For this prompt, we will store everything in the 'videos' bucket but organize by name if possible,
-    // or just dump them there.
     const filename = `${folder}_${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
     
     const { data, error } = await supabase.storage
-      .from('videos') // Reusing the videos bucket for simplicity as setup in SQL
+      .from('videos') // Using 'videos' bucket for all media based on schema
       .upload(filename, fileBlob, {
         cacheControl: '3600',
         upsert: false,
@@ -25,6 +23,9 @@ export const uploadFileToStorage = async (fileBlob: Blob, folder: 'videos' | 'do
 
     if (error) {
       console.error('Supabase Storage Error:', error);
+      if (error.message.includes("bucket not found")) {
+        throw new Error("Storage bucket 'videos' does not exist. Please run the SQL setup script.");
+      }
       throw new Error(`${folder} Upload Failed: ${error.message}`);
     }
 
@@ -68,6 +69,9 @@ export const saveInterviewData = async (analysis: AnalysisResult, videoUrl: stri
 
     if (error) {
       console.error('Supabase Database Error:', error);
+      if (error.code === '42P01') { // Undefined table code in Postgres
+        throw new Error("Table 'interviews' does not exist. Please run the SQL setup script.");
+      }
       throw new Error(`Database Save Failed: ${error.message}`);
     }
 
